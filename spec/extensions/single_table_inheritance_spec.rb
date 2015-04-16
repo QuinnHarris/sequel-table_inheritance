@@ -7,7 +7,7 @@ describe Sequel::Model, "single table inheritance plugin" do
   before do
     class ::StiTest < Sequel::Model
       columns :id, :kind, :blah
-      plugin :single_table_inheritance, :kind
+      plugin :hybrid_table_inheritance, :kind
     end 
     class ::StiTestSub1 < StiTest
     end 
@@ -28,7 +28,7 @@ describe Sequel::Model, "single table inheritance plugin" do
   end
   
   it "should allow changing the inheritance column via a plugin :single_table_inheritance call" do
-    StiTest.plugin :single_table_inheritance, :blah
+    StiTest.plugin :hybrid_table_inheritance, :blah
     Object.send(:remove_const, :StiTestSub1)
     Object.send(:remove_const, :StiTestSub2)
     class ::StiTestSub1 < StiTest; end 
@@ -67,7 +67,7 @@ describe Sequel::Model, "single table inheritance plugin" do
       called = true
       Object
     end
-    StiTest.plugin :single_table_inheritance, :kind
+    StiTest.plugin :hybrid_table_inheritance, :kind
     @ds._fetch = [{:kind=>''}, {:kind=>nil}]
     StiTest.all.collect{|x| x.class}.should == [StiTest, StiTest]
     called.should == false
@@ -99,7 +99,7 @@ describe Sequel::Model, "single table inheritance plugin" do
   end
 
   it "should handle type column with the same name as existing method names" do
-    StiTest.plugin :single_table_inheritance, :type
+    StiTest.plugin :hybrid_table_inheritance, :type
     StiTest.columns :id, :type
     StiTest.create
     DB.sqls.should == ["INSERT INTO sti_tests (type) VALUES ('StiTest')", "SELECT * FROM sti_tests WHERE (id = 10) LIMIT 1"]
@@ -161,7 +161,7 @@ describe Sequel::Model, "single table inheritance plugin" do
     end
 
     specify "should have working row_proc if using set_dataset in subclass to remove columns" do
-      StiTest2.plugin :single_table_inheritance, :kind
+      StiTest2.plugin :hybrid_table_inheritance, :kind
       class ::StiTest3 < ::StiTest2
         set_dataset(dataset.select(*(columns - [:blah])))
       end
@@ -171,7 +171,7 @@ describe Sequel::Model, "single table inheritance plugin" do
     end
 
     it "should work with custom procs with strings" do
-      StiTest2.plugin :single_table_inheritance, :kind, :model_map=>proc{|v| v == 1 ? 'StiTest3' : 'StiTest4'}, :key_map=>proc{|klass| klass.name == 'StiTest3' ? 1 : 2}
+      StiTest2.plugin :hybrid_table_inheritance, :kind, :model_map=>proc{|v| v == 1 ? 'StiTest3' : 'StiTest4'}, :key_map=>proc{|klass| klass.name == 'StiTest3' ? 1 : 2}
       class ::StiTest3 < ::StiTest2; end
       class ::StiTest4 < ::StiTest2; end
       StiTest2.dataset.row_proc.call(:kind=>0).should be_a_instance_of(StiTest4)
@@ -184,7 +184,7 @@ describe Sequel::Model, "single table inheritance plugin" do
     end
 
     it "should work with custom procs with symbols" do
-      StiTest2.plugin :single_table_inheritance, :kind, :model_map=>proc{|v| v == 1 ? :StiTest3 : :StiTest4}, :key_map=>proc{|klass| klass.name == 'StiTest3' ? 1 : 2}
+      StiTest2.plugin :hybrid_table_inheritance, :kind, :model_map=>proc{|v| v == 1 ? :StiTest3 : :StiTest4}, :key_map=>proc{|klass| klass.name == 'StiTest3' ? 1 : 2}
       class ::StiTest3 < ::StiTest2; end
       class ::StiTest4 < ::StiTest2; end
       StiTest2.dataset.row_proc.call(:kind=>0).should be_a_instance_of(StiTest4)
@@ -197,7 +197,7 @@ describe Sequel::Model, "single table inheritance plugin" do
     end
 
     it "should work with custom hashes" do
-      StiTest2.plugin :single_table_inheritance, :kind, :model_map=>{0=>StiTest2, 1=>:StiTest3, 2=>'StiTest4'}, :key_map=>{StiTest2=>4, 'StiTest3'=>5, 'StiTest4'=>6}
+      StiTest2.plugin :hybrid_table_inheritance, :kind, :model_map=>{0=>StiTest2, 1=>:StiTest3, 2=>'StiTest4'}, :key_map=>{StiTest2=>4, 'StiTest3'=>5, 'StiTest4'=>6}
       class ::StiTest3 < ::StiTest2; end
       class ::StiTest4 < ::StiTest2; end
       StiTest2.dataset.row_proc.call(:kind=>0).should be_a_instance_of(StiTest2)
@@ -213,7 +213,7 @@ describe Sequel::Model, "single table inheritance plugin" do
     end
 
     it "should infer key_map from model_map if provided as a hash" do
-      StiTest2.plugin :single_table_inheritance, :kind, :model_map=>{0=>StiTest2, 1=>'StiTest3', 2=>:StiTest4}
+      StiTest2.plugin :hybrid_table_inheritance, :kind, :model_map=>{0=>StiTest2, 1=>'StiTest3', 2=>:StiTest4}
       class ::StiTest3 < ::StiTest2; end
       class ::StiTest4 < ::StiTest2; end
       StiTest2.dataset.row_proc.call(:kind=>0).should be_a_instance_of(StiTest2)
@@ -226,7 +226,7 @@ describe Sequel::Model, "single table inheritance plugin" do
     end
 
     it "should raise exceptions if a bad model value is used" do
-      StiTest2.plugin :single_table_inheritance, :kind, :model_map=>{0=>1,1=>1.5, 2=>Date.today}
+      StiTest2.plugin :hybrid_table_inheritance, :kind, :model_map=>{0=>1,1=>1.5, 2=>Date.today}
       class ::StiTest3 < ::StiTest2; end
       class ::StiTest4 < ::StiTest2; end
       proc{StiTest2.dataset.row_proc.call(:kind=>0)}.should raise_error(Sequel::Error)
@@ -235,7 +235,7 @@ describe Sequel::Model, "single table inheritance plugin" do
     end
 
     it "should work with non-bijective mappings" do
-      StiTest2.plugin :single_table_inheritance, :kind, :model_map=>{0=>'StiTest3', 1=>'StiTest3', 2=>'StiTest4'}
+      StiTest2.plugin :hybrid_table_inheritance, :kind, :model_map=>{0=>'StiTest3', 1=>'StiTest3', 2=>'StiTest4'}
       class ::StiTest3 < ::StiTest2; end
       class ::StiTest4 < ::StiTest2; end
       StiTest2.dataset.row_proc.call(:kind=>0).should be_a_instance_of(StiTest3)
@@ -247,7 +247,7 @@ describe Sequel::Model, "single table inheritance plugin" do
     end
 
     it "should work with non-bijective mappings and key map procs" do
-      StiTest2.plugin :single_table_inheritance, :kind,
+      StiTest2.plugin :hybrid_table_inheritance, :kind,
         :key_map=>proc{|model| model.to_s == 'StiTest4' ? 2 : [0,1] }
       class ::StiTest3 < ::StiTest2; end
       class ::StiTest4 < ::StiTest2; end
@@ -258,7 +258,7 @@ describe Sequel::Model, "single table inheritance plugin" do
     end
 
     it "should create correct sql with non-bijective mappings" do
-      StiTest2.plugin :single_table_inheritance, :kind, :model_map=>{0=>'StiTest3', 1=>'StiTest3', 2=>'StiTest4'}
+      StiTest2.plugin :hybrid_table_inheritance, :kind, :model_map=>{0=>'StiTest3', 1=>'StiTest3', 2=>'StiTest4'}
       class ::StiTest3 < ::StiTest2; end
       class ::StiTest4 < ::StiTest2; end
     
@@ -268,7 +268,7 @@ describe Sequel::Model, "single table inheritance plugin" do
     end
 
     it "should honor a :key_chooser" do
-      StiTest2.plugin :single_table_inheritance, :kind, :key_chooser => proc{|inst| inst.model.to_s.downcase }
+      StiTest2.plugin :hybrid_table_inheritance, :kind, :key_chooser => proc{|inst| inst.model.to_s.downcase }
       class ::StiTest3 < ::StiTest2; end
       class ::StiTest4 < ::StiTest2; end
 

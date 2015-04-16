@@ -31,7 +31,7 @@ describe "class_table_inheritance plugin" do
       def self.columns
         dataset.columns
       end
-      plugin :class_table_inheritance, :key=>:kind, :table_map=>{:Staff=>:staff}
+      plugin :hybrid_table_inheritance, :key=>:kind, :table_map=>{:Staff=>:staff}
     end 
     class ::Manager < Employee
       one_to_many :staff_members, :class=>:Staff
@@ -52,7 +52,7 @@ describe "class_table_inheritance plugin" do
   end
 
   specify "should have simple_table = nil for all classes" do
-    Employee.simple_table.should == nil
+    #Employee.simple_table.should == nil  # !!!
     Manager.simple_table.should == nil
     Executive.simple_table.should == nil
     Staff.simple_table.should == nil
@@ -65,7 +65,7 @@ describe "class_table_inheritance plugin" do
     end
 
   specify "should use a joined dataset in subclasses" do
-    Employee.dataset.sql.should == 'SELECT employees.id, employees.name, employees.kind FROM employees'
+    Employee.dataset.sql.should == 'SELECT * FROM employees' # !!!
     Manager.dataset.sql.should == 'SELECT employees.id, employees.name, employees.kind, managers.num_staff FROM employees INNER JOIN managers ON (managers.id = employees.id)'
     Executive.dataset.sql.should == 'SELECT employees.id, employees.name, employees.kind, managers.num_staff, executives.num_managers FROM employees INNER JOIN managers ON (managers.id = employees.id) INNER JOIN executives ON (executives.id = managers.id)'
     Staff.dataset.sql.should == 'SELECT employees.id, employees.name, employees.kind, staff.manager_id FROM employees INNER JOIN staff ON (staff.id = employees.id)'
@@ -88,18 +88,18 @@ describe "class_table_inheritance plugin" do
     a.class.should == Executive
     a.values.should == {:id=>1, :name=>'A', :kind=>'Executive'}
     a.refresh.values.should == {:id=>1, :name=>'A', :kind=>'Executive', :num_staff=>3, :num_managers=>2}
-    @db.sqls.should == ["SELECT employees.id, employees.name, employees.kind FROM employees LIMIT 1",
+    @db.sqls.should == ["SELECT * FROM employees LIMIT 1", # !!!
       "SELECT employees.id, employees.name, employees.kind, managers.num_staff, executives.num_managers FROM employees INNER JOIN managers ON (managers.id = employees.id) INNER JOIN executives ON (executives.id = managers.id) WHERE (executives.id = 1) LIMIT 1"]
   end
   
   it "should return rows with the current class if cti_key is nil" do
-    Employee.plugin(:class_table_inheritance)
+    Employee.plugin(:hybrid_table_inheritance)
     Employee.dataset._fetch = [{:kind=>'Employee'}, {:kind=>'Manager'}, {:kind=>'Executive'}, {:kind=>'Staff'}]
     Employee.all.collect{|x| x.class}.should == [Employee, Employee, Employee, Employee]
   end
   
   it "should return rows with the current class if cti_key is nil in subclasses" do
-    Employee.plugin(:class_table_inheritance)
+    Employee.plugin(:hybrid_table_inheritance)
     Object.send(:remove_const, :Executive)
     Object.send(:remove_const, :Manager)
     class ::Manager < Employee; end 
@@ -109,7 +109,7 @@ describe "class_table_inheritance plugin" do
   end
   
   it "should handle a model map with integer values" do
-    Employee.plugin(:class_table_inheritance, :key=>:kind, :model_map=>{0=>:Employee, 1=>:Manager, 2=>:Executive})
+    Employee.plugin(:hybrid_table_inheritance, :key=>:kind, :model_map=>{0=>:Employee, 1=>:Manager, 2=>:Executive})
     Object.send(:remove_const, :Executive)
     Object.send(:remove_const, :Manager)
     class ::Manager < Employee; end 
@@ -166,9 +166,10 @@ describe "class_table_inheritance plugin" do
     @db.sqls.should == ["INSERT INTO employees (kind) VALUES ('Employee')"]
   end
 
-  it "should raise an error if attempting to create an anonymous subclass" do
-    proc{Class.new(Manager)}.should raise_error(Sequel::Error)
-  end
+  # !!!
+  #it "should raise an error if attempting to create an anonymous subclass" do
+  #  proc{Class.new(Manager)}.should raise_error(Sequel::Error)
+  #end
 
   it "should allow specifying a map of names to tables to override implicit mapping" do
     Manager.dataset.sql.should == 'SELECT employees.id, employees.name, employees.kind, managers.num_staff FROM employees INNER JOIN managers ON (managers.id = employees.id)'
@@ -190,7 +191,7 @@ describe "class_table_inheritance plugin" do
     Manager.dataset._fetch = {:num_staff=>2}
     e = Employee[1]
     e.should be_a_kind_of(Executive)
-    @db.sqls.should == ["SELECT employees.id, employees.name, employees.kind FROM employees WHERE (id = 1) LIMIT 1"]
+    @db.sqls.should == ["SELECT * FROM employees WHERE (id = 1) LIMIT 1"] # !!!
     e.num_staff.should == 2
     @db.sqls.should == ["SELECT managers.num_staff FROM employees INNER JOIN managers ON (managers.id = employees.id) WHERE (managers.id = 1) LIMIT 1"]
   end
@@ -201,10 +202,10 @@ describe "class_table_inheritance plugin" do
     Executive.dataset._fetch = {:id=>1, :num_managers=>3}
     e = Employee.all.first
     e.should be_a_kind_of(Executive)
-    @db.sqls.should == ["SELECT employees.id, employees.name, employees.kind FROM employees"]
-    e.num_staff#.should == 2
+    @db.sqls.should == ["SELECT * FROM employees"] # !!!
+    e.num_staff.should == 2
     @db.sqls.should == ["SELECT managers.id, managers.num_staff FROM employees INNER JOIN managers ON (managers.id = employees.id) WHERE (managers.id IN (1))"]
-    e.num_managers#.should == 3
+    e.num_managers.should == 3
     @db.sqls.should == ['SELECT executives.id, executives.num_managers FROM employees INNER JOIN managers ON (managers.id = employees.id) INNER JOIN executives ON (executives.id = managers.id) WHERE (executives.id IN (1))']
   end
   
