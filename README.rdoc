@@ -1,0 +1,1 @@
+== Sequel Table Inheritance: Alternative to single and class table inheritance plugins
