@@ -1,6 +1,153 @@
 module Sequel
   module Plugins
-    # NEEDS DOCUMENTATION
+    # = Overview
+    #
+    # The hybrid_table_inheritance pluging allows model subclasses to be stored
+    # in either the same table as the parent model or a different table with a key
+    # referencing the parent table.
+    # This combines the functionality of single and class (multiple) table inheritance
+    # into one plugin.  This plugin uses the single_table_inheritance plugin
+    # and should work as a drop in replacement for the class_table_inheritance plugins.
+    # This allows introducing new tables only when needed typically for additional
+    # fields or possibly referential integrity to subclassed objects.
+    #
+    # = Detail
+    #
+    # For example, with this hierarchy:
+    #
+    #       Employee
+    #      /        \
+    #   Staff     Manager
+    #     |           |
+    #   Cook      Executive
+    #                |
+    #               CEO
+    #
+    # the following database schema may be used (table - columns):
+    #
+    # employees :: id, name, kind
+    # staff :: id, manager_id
+    # managers :: id, num_staff
+    # executives :: id, num_managers
+    #
+    # The hybrid_table_inheritance plugin assumes that the root table
+    # (e.g. employees) has a primary key field (usually autoincrementing),
+    # and all other tables have a foreign key of the same name that points
+    # to the same key in their superclass's table.  In this example,
+    # the employees id column is a primary key and the id column in every
+    # other table is a foreign key referencing the employees id.
+    #
+    # In this example the employees table stores Staff model objects and the
+    # executives table stores CEO model objects.
+    #
+    # When using the class_table_inheritance plugin, subclasses use joined
+    # datasets:
+    #
+    #   Employee.dataset.sql
+    #   # SELECT * FROM employees
+    #
+    #   Manager.dataset.sql
+    #   # SELECT employees.id, employees.name, employees.kind,
+    #   #        managers.num_staff
+    #   # FROM employees
+    #   # JOIN managers ON (managers.id = employees.id)
+    #
+    #   CEO.dataset.sql
+    #   # SELECT employees.id, employees.name, employees.kind,
+    #   #        managers.num_staff, executives.num_managers
+    #   # FROM employees
+    #   # JOIN managers ON (managers.id = employees.id)
+    #   # JOIN executives ON (executives.id = managers.id)
+    #   # WHERE (employees.kind IN ('CEO'))
+    #
+    # This allows CEO.all to return instances with all attributes
+    # loaded.  The plugin overrides the deleting, inserting, and updating
+    # in the model to work with multiple tables, by handling each table
+    # individually.
+    #
+    # This plugin requires the lazy_attributes plugin and uses it to
+    # return subclass specific attributes that would not be loaded
+    # when calling superclass methods (since those wouldn't join
+    # to the subclass tables).  For example:
+    #
+    #   a = Employee.all # [<#Staff>, <#Manager>, <#Executive>]
+    #   a.first.values # {:id=>1, name=>'S', :kind=>'Staff'}
+    #   a.first.manager_id # Loads the manager_id attribute from the database
+    #
+    # If you want to get all columns in a subclass instance after loading
+    # via the superclass, call Model#refresh.
+    #
+    #   a = Employee.first
+    #   a.values # {:id=>1, name=>'S', :kind=>'CEO'}
+    #   a.refresh.values # {:id=>1, name=>'S', :kind=>'Executive', :num_staff=>4, :num_managers=>2}
+    #
+    # = Usage
+    #
+    #   # Use the default of storing the class name in the sti_key
+    #   # column (:kind in this case)
+    #   class Employee < Sequel::Model
+    #     plugin :hybrid_table_inheritance, :key=>:kind
+    #   end
+    #
+    #   # Have subclasses inherit from the appropriate class
+    #   class Staff < Employee; end    # uses staff table
+    #   class Cook < Staff; end        # cooks table doesn't exist so uses staff table
+    #   class Manager < Employee; end  # uses managers table
+    #   class Executive < Manager; end # uses executives table
+    #   class CEO < Manager; end       # ceos table doesn't exist so uses executives table
+    #
+    #   # Some examples of using these options:
+    #
+    #   # Specifying the tables with a :table_map hash
+    #   Employee.plugin :hybrid_table_inheritance,
+    #     :table_map=>{:Employee  => :employees,
+    #                  :Staff     => :staff,
+    #                  :Cook      => :staff,
+    #                  :Manager   => :managers,
+    #                  :Executive => :executives,
+    #                  :CEO       => :executives }
+    #
+    #   # Using integers to store the class type, with a :model_map hash
+    #   # and an sti_key of :type
+    #   Employee.plugin :hybrid_table_inheritance, :type,
+    #     :model_map=>{1=>:Staff, 2=>:Cook, 3=>:Manager, 4=>:CEO}
+    #
+    #   # Using non-class name strings
+    #   Employee.plugin :hybrid_table_inheritance, :key=>:type,
+    #     :model_map=>{'staff'=>:Staff, 'cook staff'=>:Cook, 'supervisor'=>:Manager}
+    #
+    #   # By default the plugin sets the respective column value
+    #   # when a new instance is created.
+    #   Cook.create.type == 'cook staff'
+    #   Manager.create.type == 'supervisor'
+    #
+    #   # You can customize this behavior with the :key_chooser option.
+    #   # This is most useful when using a non-bijective mapping.
+    #   Employee.plugin :hybrid_table_inheritance, :key=>:type,
+    #     :model_map=>{'cook staff'=>:Cook, 'supervisor'=>:Manager},
+    #     :key_chooser=>proc{|instance| instance.model.sti_key_map[instance.model.to_s].first || 'stranger' }
+    #
+    #   # Using custom procs, with :model_map taking column values
+    #   # and yielding either a class, string, symbol, or nil,
+    #   # and :key_map taking a class object and returning the column
+    #   # value to use
+    #   Employee.plugin :single_table_inheritance, :key=>:type,
+    #     :model_map=>proc{|v| v.reverse},
+    #     :key_map=>proc{|klass| klass.name.reverse}
+    #
+    #   # You can use the same class for multiple values.
+    #   # This is mainly useful when the sti_key column contains multiple values
+    #   # which are different but do not require different code.
+    #   Employee.plugin :single_table_inheritance, :key=>:type,
+    #     :model_map=>{'staff' => "Staff",
+    #                  'manager' => "Manager",
+    #                  'overpayed staff' => "Staff",
+    #                  'underpayed staff' => "Staff"}
+    #
+    # One minor issue to note is that if you specify the <tt>:key_map</tt>
+    # option as a hash, instead of having it inferred from the <tt>:model_map</tt>,
+    # you should only use class name strings as keys, you should not use symbols
+    # as keys.
     module HybridTableInheritance
       # The class_table_inheritance plugin requires the lazy_attributes plugin
       # to handle lazily-loaded attributes for subclass instances returned
@@ -10,7 +157,16 @@ module Sequel
         model.plugin :lazy_attributes
       end
 
-      # Setup the necessary STI variables, see the module RDoc for SingleTableInheritance
+      # Setup the plugin using the following options:
+      #  :key :: column symbol that holds the key that identifies the class to use.
+      #          Necessary if you want to call model methods on a superclass
+      #          that return subclass instances
+      #  :model_map :: Hash or proc mapping the key column values to model class names.
+      #  :key_map :: Hash or proc mapping model class names to key column values.
+      #              Each value or return is an array of possible key column values.
+      #  :key_chooser :: proc returning key for the provided model instance
+      #  :table_map :: Hash with class name symbols keys mapping to table name symbol values
+      #                Overrides implicit table names
       def self.configure(model, opts = OPTS)
         SingleTableInheritance.configure model, opts[:key], opts
 
