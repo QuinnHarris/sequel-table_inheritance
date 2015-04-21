@@ -179,11 +179,6 @@ module Sequel
       end
 
       module ClassMethods
-        # The parent/root/base model for this class table inheritance hierarchy.
-        # This is the only model in the hierarchy that load the
-        # class_table_inheritance plugin.
-        attr_reader :cti_base_model
-
         # Hash with table name symbol keys and arrays of column symbol values,
         # giving the columns to update in each backing database table.
         attr_reader :cti_columns
@@ -200,12 +195,19 @@ module Sequel
 
 
         def inherited(subclass)
-          cc = cti_columns
-          ctm = cti_table_map # Removed .dup
-          ct = cti_tables.dup
-          cbm = cti_base_model
           ds = sti_dataset
 
+          # Prevent inherited in model/base.rb from setting the dataset
+          subclass.instance_eval { @dataset = nil }
+
+          @cti_tables.push ds.first_source_alias # Kludge to change filter on cti_base_model table
+          super # Call single_table_inheritance
+          @cti_tables.pop
+
+          ctm = cti_table_map
+          ct = cti_tables.dup
+          cc = cti_columns
+          pk = primary_key
 
           # Set table if this is a class table inheritance
           table = nil
@@ -223,41 +225,24 @@ module Sequel
               end
             end
           end
-
           table = nil if table && (table == table_name)
-
-          if table
-            pk = primary_key
-            if ct.length == 1
-              ds = ds.select(*self.columns.map{|cc| Sequel.qualify(table_name, Sequel.identifier(cc))})
-            end
-            # Need to set dataset and columns before calling super so that
-            # the main column accessor module is included in the class before any
-            # plugin accessor modules (such as the lazy attributes accessor module).
-            subclass.instance_eval do
-              @cti_base_model = cbm
-              set_dataset(ds = ds.join(table, pk=>pk).select_append(*(columns - [primary_key]).map{|cc| Sequel.qualify(table, Sequel.identifier(cc))}))
-              set_columns(self.columns)
-            end
-          end
-
-          @cti_tables.push cbm.table_name # Kludge to change filter on cti_base_model table
-          super # Call single_table_inheritance
-          @cti_tables.pop
-
 
           subclass.instance_eval do
             @cti_table_map = ctm
-            @cti_base_model = cbm
 
             if table
-              set_dataset(ds) # Don't use dataset from sti plugin
+              if ct.length == 1
+                ds = ds.select(*self.columns.map{|cc| Sequel.qualify(table_name, Sequel.identifier(cc))})
+              end
+              @sti_dataset = ds.join(table, pk=>pk).select_append(*(columns - [pk]).map{|cc| Sequel.qualify(table, Sequel.identifier(cc))})
+              set_dataset(@sti_dataset)
+              set_columns(self.columns)
               dataset.row_proc = lambda{|r| subclass.sti_load(r)}
-              @cti_tables = ct + [table]
-              @cti_columns = cc.merge(table=>columns)
-              @sti_dataset = ds
 
-              (columns - [cbm.primary_key]).each{|a| define_lazy_attribute_getter(a, :dataset=>dataset, :table=>table)}
+              @cti_tables = ct + [table]
+              @cti_columns = cc.merge!(table=>columns)
+
+              (columns - [pk]).each{|a| define_lazy_attribute_getter(a, :dataset=>dataset, :table=>table)}
               cti_tables.reverse.each do |ct|
                 db.schema(ct).each{|sk,v| db_schema[sk] = v}
               end
@@ -268,17 +253,10 @@ module Sequel
           end
         end
 
-        # The primary key in the parent/base/root model, which should have a
-        # foreign key with the same name referencing it in each model subclass.
-        def primary_key
-          return super if self == cti_base_model
-          cti_base_model.primary_key
-        end
-
         # The table name for the current model class's main table (not used
         # by any superclasses).
         def table_name
-          self == cti_base_model ? super : cti_tables.last
+          cti_tables ? cti_tables.last : super
         end
 
         def sti_class_from_key(key)
