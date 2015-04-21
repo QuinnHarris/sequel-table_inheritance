@@ -65,8 +65,21 @@ module Sequel
     # in the model to work with multiple tables, by handling each table
     # individually.
     #
-    # This plugin requires the lazy_attributes plugin and uses it to
-    # return subclass specific attributes that would not be loaded
+    # = Subclass loading
+    #
+    # When model objects are retrieved for a superclass the result could be
+    # subclass objects needing additional attributes from other tables.
+    # This plugin can load those additional attributes immediately with eager
+    # loading or when requested on the object with lazy loading.
+    #
+    # With eager loading, the additional needed rows will be loaded with the
+    # all or first methods.  Note that eager loading does not work
+    # with the each method because all of the records must be loaded to
+    # determine the keys for each subclass query.  In that case lazy loading can
+    # be used or the each method used on the result of the all method.
+    #
+    # If lazy loading is used the lazy_attributes plugin will be included to
+    # return subclass specific attributes that were not loaded
     # when calling superclass methods (since those wouldn't join
     # to the subclass tables).  For example:
     #
@@ -81,6 +94,12 @@ module Sequel
     #   a.values # {:id=>1, name=>'S', :kind=>'CEO'}
     #   a.refresh.values # {:id=>1, name=>'S', :kind=>'Executive', :num_staff=>4, :num_managers=>2}
     #
+    # The option :subclass_load sets the default subclass loading strategy.
+    # It accepts :eager, :eager_only, :lazy or :lazy_only with a default of :lazy
+    # The _only options will only allow that strategy to be used.
+    # In addition eager or lazy can be called on a dataset to override the default
+    # strategy used assuming an _only option was not set.
+    #
     # = Usage
     #
     #   # Use the default of storing the class name in the sti_key
@@ -94,7 +113,7 @@ module Sequel
     #   class Cook < Staff; end        # cooks table doesn't exist so uses staff table
     #   class Manager < Employee; end  # uses managers table
     #   class Executive < Manager; end # uses executives table
-    #   class CEO < Manager; end       # ceos table doesn't exist so uses executives table
+    #   class CEO < Executive; end     # ceos table doesn't exist so uses executives table
     #
     #   # Some examples of using these options:
     #
@@ -110,7 +129,7 @@ module Sequel
     #   # Using integers to store the class type, with a :model_map hash
     #   # and an sti_key of :type
     #   Employee.plugin :hybrid_table_inheritance, :type,
-    #     :model_map=>{1=>:Staff, 2=>:Cook, 3=>:Manager, 4=>:CEO}
+    #     :model_map=>{1=>:Staff, 2=>:Cook, 3=>:Manager, 4=>:Executive, 5=>:CEO}
     #
     #   # Using non-class name strings
     #   Employee.plugin :hybrid_table_inheritance, :key=>:type,
@@ -154,7 +173,7 @@ module Sequel
       # by superclass methods.
       def self.apply(model, opts = OPTS)
         model.plugin :single_table_inheritance, nil
-        model.plugin :lazy_attributes
+        model.plugin :lazy_attributes unless opts[:subclass_load] == :eager_only
       end
 
       # Setup the plugin using the following options:
@@ -167,11 +186,15 @@ module Sequel
       #  :key_chooser :: proc returning key for the provided model instance
       #  :table_map :: Hash with class name symbols keys mapping to table name symbol values
       #                Overrides implicit table names
+      #  :subclass_load :: subclass loading strategy, defaults to :lazy
+      #                    options: :eager, :eager_only, :lazy or :lazy_only
       def self.configure(model, opts = OPTS)
         SingleTableInheritance.configure model, opts[:key], opts
 
         model.instance_eval do
-          @cti_base_model = self
+          @cti_subclass_load = opts[:subclass_load]
+          @cti_subclass_datasets = {}
+          @cti_models = [self]
           @cti_tables = [table_name]
           @cti_columns = {table_name=>columns}
           @cti_table_map = opts[:table_map] || {}
@@ -179,6 +202,30 @@ module Sequel
       end
 
       module ClassMethods
+        # An array of each model in the inheritance hierarchy that uses an
+        # backed by a new table.
+        attr_reader :cti_models
+
+        # The parent/root/base model for this class table inheritance hierarchy.
+        # This is the only model in the hierarchy that loads the
+        # class_table_inheritance plugin.
+        # Only needed to be compatible with class_table_inheritance plugin
+        def cti_base_model
+          @cti_models.first
+        end
+
+        def cti_table_model
+          @cti_models.last
+        end
+
+        # A hash with subclass models keys and datasets to load that subclass
+        # assuming the current model has already been loaded.
+        # Used for eager loading
+        attr_reader :cti_subclass_datasets
+
+        # Eager loading option
+        attr_reader :cti_subclass_load
+
         # Hash with table name symbol keys and arrays of column symbol values,
         # giving the columns to update in each backing database table.
         attr_reader :cti_columns
@@ -193,21 +240,22 @@ module Sequel
         # the implicit naming is incorrect.
         attr_reader :cti_table_map
 
-
         def inherited(subclass)
           ds = sti_dataset
 
           # Prevent inherited in model/base.rb from setting the dataset
           subclass.instance_eval { @dataset = nil }
 
-          @cti_tables.push ds.first_source_alias # Kludge to change filter on cti_base_model table
+          @cti_tables.push ds.first_source_alias # Kludge to change filter to use root table
           super # Call single_table_inheritance
           @cti_tables.pop
 
+          cm = cti_models
           ctm = cti_table_map
           ct = cti_tables.dup
           cc = cti_columns
           pk = primary_key
+          csl = cti_subclass_load
 
           # Set table if this is a class table inheritance
           table = nil
@@ -229,32 +277,48 @@ module Sequel
 
           subclass.instance_eval do
             @cti_table_map = ctm
+            @cti_subclass_load = csl
+            @cti_subclass_datasets = {}
 
             if table
               if ct.length == 1
                 ds = ds.select(*self.columns.map{|cc| Sequel.qualify(table_name, Sequel.identifier(cc))})
               end
-              @sti_dataset = ds.join(table, pk=>pk).select_append(*(columns - [pk]).map{|cc| Sequel.qualify(table, Sequel.identifier(cc))})
+              sel_app = (columns - [pk]).map{|cc| Sequel.qualify(table, Sequel.identifier(cc))}
+              @sti_dataset = ds.join(table, pk=>pk).select_append(*sel_app)
               set_dataset(@sti_dataset)
               set_columns(self.columns)
               dataset.row_proc = lambda{|r| subclass.sti_load(r)}
 
+              @cti_models = cm + [self]
               @cti_tables = ct + [table]
               @cti_columns = cc.merge!(table=>columns)
 
-              (columns - [pk]).each{|a| define_lazy_attribute_getter(a, :dataset=>dataset, :table=>table)}
+              unless csl == :lazy_only
+                cm.each do |model|
+                  sd = model.instance_variable_get(:@cti_subclass_datasets)
+                  unless d = sd[cm.last]
+                    sd[self] = db.from(table).select(*columns.map{|cc| Sequel.qualify(table_name, Sequel.identifier(cc))})
+                  else
+                    sd[self] = d.join(table, pk=>pk).select_append(*sel_app)
+                  end
+                end
+              end
+              unless csl == :eager_only
+                (columns - [pk]).each{|a| define_lazy_attribute_getter(a, :dataset=>dataset, :table=>table)}
+              end
               cti_tables.reverse.each do |ct|
                 db.schema(ct).each{|sk,v| db_schema[sk] = v}
               end
             else
+              @cti_models = cm
               @cti_tables = ct
               @cti_columns = cc
             end
           end
         end
 
-        # The table name for the current model class's main table (not used
-        # by any superclasses).
+        # The table name for the current model class's main table.
         def table_name
           cti_tables ? cti_tables.last : super
         end
@@ -315,6 +379,82 @@ module Sequel
             h = {}
             m.cti_columns[table].each{|c| h[c] = columns[c] if columns.include?(c)}
             m.db.from(table).filter(pkh).update(h) unless h.empty?
+          end
+        end
+      end
+
+      module DatasetMethods
+        def single_record
+          post_load_record(super)
+        end
+
+        def with_sql_first(sql)
+          post_load_record(super)
+        end
+
+        # Set dataset to use eager loading
+        def eager
+          raise Error, "eager loading disabled" if model.cti_subclass_load == :lazy_only
+          clone(:eager_load => true)
+        end
+
+        # Set dataset to use lazy loading
+        def lazy
+          raise Error, "lazy loading disabled" if model.cti_subclass_load == :eager_only
+          clone(:eager_load => false)
+        end
+
+        # Return true if eager loading will be used, false/nil for lazy loading
+        def uses_eager_load?
+          return opts[:eager_load] unless opts[:eager_load].nil?
+          [:eager, :eager_only].include?(model.cti_subclass_load)
+        end
+
+        private
+
+        def subclass_dataset(m, keys)
+          ds = model.cti_subclass_datasets[m]
+          ds = ds.filter(m.qualified_primary_key_hash(keys, ds.first_source_alias))
+          ds
+        end
+
+        def post_load_record(r)
+          return r unless r && uses_eager_load?
+          ds = subclass_dataset(r.model.cti_table_model, r.pk)
+          r.values.merge!(ds.limit(1).first)
+          r
+        end
+
+        def post_load(records)
+          super
+          return unless uses_eager_load?
+
+          subclass_datasets = model.cti_subclass_datasets
+
+          table_key_map = Hash.new
+          records.each do |r|
+            model = r.model.cti_table_model
+            next unless subclass_datasets.key?(model)
+            table_key_map[model] = { } unless table_key_map.key?(model)
+            table_key_map[model][r.pk] = r
+          end
+
+          pkc = model.primary_key
+          table_key_map.each do |model, id_map|
+            ds = subclass_dataset(model, id_map.keys)
+            applied_set = {}
+            ds.all do |r|
+              pkv = pkc.is_a?(Array) ? pkc.map{|k| r[k]} : r[pkc]
+              m = id_map[pkv]
+              if applied_set.key?(pkv)
+                # Multiple rows for one row in original query
+                # insert is O(n) but needed if dataset is ordered.
+                # This code path should seldom if ever get used
+                records.insert(records.index(m)+1, m = m.dup)
+              end
+              applied_set[pkv] = true
+              m.values.merge!(r)
+            end
           end
         end
       end
