@@ -359,16 +359,19 @@ module Sequel
         # in each table.
         def _insert
           return super if model.cti_tables.length == 1
-          iid = @values[primary_key]
           m = model
           m.cti_tables.each do |table|
-            h = {}
-            h[m.primary_key] ||= iid if iid
-            m.cti_columns[table].each{|c| h[c] = @values[c] if @values.include?(c)}
-            nid = m.db.from(table).insert(h)
-            iid ||= nid
+            v = {}
+            m.cti_columns[table].each{|c| v[c] = @values[c] if @values.include?(c)}
+            ds = m.db.from(table)
+            if ds.supports_insert_select? && (h = ds.insert_select(v))
+              @values.merge!(h)
+            else
+              nid = ds.insert(v)
+              @values[primary_key] ||= nid
+            end
           end
-          @values[primary_key] = iid
+          db.dataset.supports_insert_select? ? nil : @values[primary_key]
         end
 
         # Update rows in all backing tables, using the columns in each table.
