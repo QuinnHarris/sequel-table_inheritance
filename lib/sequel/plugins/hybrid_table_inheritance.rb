@@ -196,7 +196,8 @@ module Sequel
           @cti_subclass_datasets = {}
           @cti_models = [self]
           @cti_tables = [table_name]
-          @cti_columns = {table_name=>columns}
+          @cti_instance_dataset = db.from(table_name)
+          @cti_table_columns = columns
           @cti_table_map = opts[:table_map] || {}
         end
       end
@@ -214,6 +215,7 @@ module Sequel
           @cti_models.first
         end
 
+        # Last model in the inheritance hierarchy to use a new table
         def cti_table_model
           @cti_models.last
         end
@@ -228,7 +230,20 @@ module Sequel
 
         # Hash with table name symbol keys and arrays of column symbol values,
         # giving the columns to update in each backing database table.
-        attr_reader :cti_columns
+        # Only needed to be compatible with class_table_inheritance plugin
+        def cti_columns
+          h = {}
+          cti_models.each { |m| h[m.table_name] = m.cti_table_columns }
+          h
+        end
+
+        # An array of column symbols for the backing database table,
+        # giving the columns to update in each backing database table.
+        attr_reader :cti_table_columns
+
+        # The dataset that table instance datasets are based on.
+        # Used for database modifications
+        attr_reader :cti_instance_dataset
 
         # An array of table symbols that back this model.  The first is
         # cti_base_model table symbol, and the last is the current model
@@ -252,8 +267,9 @@ module Sequel
 
           cm = cti_models
           ctm = cti_table_map
-          ct = cti_tables.dup
-          cc = cti_columns
+          ct = cti_tables
+          ctc = cti_table_columns
+          cid = cti_instance_dataset
           pk = primary_key
           csl = cti_subclass_load
 
@@ -265,12 +281,8 @@ module Sequel
               columns = db.from(table).columns
             else
               table = subclass.implicit_table_name
-              begin
-                columns = db.from(table).columns
-                table = nil if !columns || columns.empty?
-              rescue Sequel::DatabaseError
-                table = nil
-              end
+              columns = db.from(table).columns rescue nil
+              table = nil if !columns || columns.empty?
             end
           end
           table = nil if table && (table == table_name)
@@ -292,7 +304,8 @@ module Sequel
 
               @cti_models = cm + [self]
               @cti_tables = ct + [table]
-              @cti_columns = cc.merge!(table=>columns)
+              @cti_table_columns = columns
+              @cti_instance_dataset = db.from(table_name)
 
               unless csl == :lazy_only
                 cm.each do |model|
@@ -313,7 +326,8 @@ module Sequel
             else
               @cti_models = cm
               @cti_tables = ct
-              @cti_columns = cc
+              @cti_table_columns = ctc
+              @cti_instance_dataset = cid
             end
           end
         end
@@ -333,14 +347,17 @@ module Sequel
         # most recent table and going through all superclasses.
         def delete
           raise Sequel::Error, "can't delete frozen object" if frozen?
-          m = model
-          m.cti_tables.reverse.each do |table|
-            m.db.from(table).filter(m.primary_key=>pk).delete
+          model.cti_models.reverse.each do |m|
+            cti_this(m).delete
           end
           self
         end
 
         private
+
+        def cti_this(model)
+          use_server(model.cti_instance_dataset.filter(model.primary_key_hash(pk)))
+        end
 
         # Set the sti_key column based on the sti_key_map.
         def _before_validation
@@ -359,11 +376,10 @@ module Sequel
         # in each table.
         def _insert
           return super if model.cti_tables.length == 1
-          m = model
-          m.cti_tables.each do |table|
+          model.cti_models.each do |m|
             v = {}
-            m.cti_columns[table].each{|c| v[c] = @values[c] if @values.include?(c)}
-            ds = m.db.from(table)
+            m.cti_table_columns.each{|c| v[c] = @values[c] if @values.include?(c)}
+            ds = use_server(m.cti_instance_dataset)
             if ds.supports_insert_select? && (h = ds.insert_select(v))
               @values.merge!(h)
             else
@@ -376,12 +392,10 @@ module Sequel
 
         # Update rows in all backing tables, using the columns in each table.
         def _update(columns)
-          pkh = pk_hash
-          m = model
-          m.cti_tables.each do |table|
+          model.cti_models.each do |m|
             h = {}
-            m.cti_columns[table].each{|c| h[c] = columns[c] if columns.include?(c)}
-            m.db.from(table).filter(pkh).update(h) unless h.empty?
+            m.cti_table_columns.each{|c| h[c] = columns[c] if columns.include?(c)}
+            cti_this(m).update(h) unless h.empty?
           end
         end
       end
