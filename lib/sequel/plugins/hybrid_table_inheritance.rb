@@ -9,7 +9,7 @@ module Sequel
     # into one plugin.  This plugin uses the single_table_inheritance plugin
     # and should work as a drop in replacement for the class_table_inheritance plugins.
     # This allows introducing new tables only when needed typically for additional
-    # fields or possibly referential integrity to subclassed objects.
+    # fields or possibly referential integrity to subclassed rows.
     #
     # = Detail
     #
@@ -18,7 +18,7 @@ module Sequel
     #       Employee
     #      /        \
     #   Staff     Manager
-    #     |           |
+    #     |          |
     #   Cook      Executive
     #                |
     #               CEO
@@ -31,16 +31,16 @@ module Sequel
     # executives :: id, num_managers
     #
     # The hybrid_table_inheritance plugin assumes that the root table
-    # (e.g. employees) has a primary key field (usually autoincrementing),
+    # (e.g. employees) has a primary key column (usually autoincrementing),
     # and all other tables have a foreign key of the same name that points
-    # to the same key in their superclass's table.  In this example,
+    # to the same column in their superclass's table.  In this example,
     # the employees id column is a primary key and the id column in every
     # other table is a foreign key referencing the employees id.
     #
-    # In this example the employees table stores Staff model objects and the
+    # In this example the staff table stores Cook model objects and the
     # executives table stores CEO model objects.
     #
-    # When using the class_table_inheritance plugin, subclasses use joined
+    # When using the class_table_inheritance plugin, subclasses can use joined
     # datasets:
     #
     #   Employee.dataset.sql
@@ -68,18 +68,18 @@ module Sequel
     # = Subclass loading
     #
     # When model objects are retrieved for a superclass the result could be
-    # subclass objects needing additional attributes from other tables.
-    # This plugin can load those additional attributes immediately with eager
-    # loading or when requested on the object with lazy loading.
+    # subclass objects needing additional values from other tables.
+    # This plugin can load those additional values immediately with eager
+    # loading or when requested on the model object with lazy loading.
     #
     # With eager loading, the additional needed rows will be loaded with the
     # all or first methods.  Note that eager loading does not work
-    # with the each method because all of the records must be loaded to
-    # determine the keys for each subclass query.  In that case lazy loading can
+    # with the each method because all of the model objects must be loaded to
+    # determine the keys for each subclass table query.  In that case lazy loading can
     # be used or the each method used on the result of the all method.
     #
-    # If lazy loading is used the lazy_attributes plugin will be included to
-    # return subclass specific attributes that were not loaded
+    # Unless lazy loading is disabled, the lazy_attributes plugin will be
+    # included to return subclass specific values that were not loaded
     # when calling superclass methods (since those wouldn't join
     # to the subclass tables).  For example:
     #
@@ -168,26 +168,26 @@ module Sequel
     # you should only use class name strings as keys, you should not use symbols
     # as keys.
     module HybridTableInheritance
-      # The class_table_inheritance plugin requires the lazy_attributes plugin
-      # to handle lazily-loaded attributes for subclass instances returned
-      # by superclass methods.
+      # The hybrid_table_inheritance plugin requires the single_table_inheritance
+      # plugin and the lazy_attributes plugin to handle lazily-loaded attributes
+      # for subclass instances returned by superclass methods.
       def self.apply(model, opts = OPTS)
         model.plugin :single_table_inheritance, nil
         model.plugin :lazy_attributes unless opts[:subclass_load] == :eager_only
       end
 
-      # Setup the plugin using the following options:
-      #  :key :: column symbol that holds the key that identifies the class to use.
-      #          Necessary if you want to call model methods on a superclass
-      #          that return subclass instances
-      #  :model_map :: Hash or proc mapping the key column values to model class names.
-      #  :key_map :: Hash or proc mapping model class names to key column values.
-      #              Each value or return is an array of possible key column values.
-      #  :key_chooser :: proc returning key for the provided model instance
-      #  :table_map :: Hash with class name symbols keys mapping to table name symbol values
-      #                Overrides implicit table names
-      #  :subclass_load :: subclass loading strategy, defaults to :lazy
-      #                    options: :eager, :eager_only, :lazy or :lazy_only
+      # Initialize the plugin using the following options:
+      # :key :: Column symbol that holds the key that identifies the class to use.
+      #         Necessary if you want to call model methods on a superclass
+      #         that return subclass instances
+      # :model_map :: Hash or proc mapping the key column values to model class names.
+      # :key_map :: Hash or proc mapping model class names to key column values.
+      #             Each value or return is an array of possible key column values.
+      # :key_chooser :: proc returning key for the provided model instance
+      # :table_map :: Hash with class name symbols keys mapping to table name symbol values
+      #               Overrides implicit table names
+      # :subclass_load :: subclass loading strategy, defaults to :lazy
+      #                   options: :eager, :eager_only, :lazy or :lazy_only
       def self.configure(model, opts = OPTS)
         SingleTableInheritance.configure model, opts[:key], opts
 

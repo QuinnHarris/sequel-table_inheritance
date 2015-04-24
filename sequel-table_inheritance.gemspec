@@ -5,13 +5,13 @@ $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 
 Gem::Specification.new do |s|
   s.name          = "sequel-table_inheritance"
-  s.version       = '0.1.0' #Sequel::TableInheritance::VERSION
+  s.version       = '0.1.2'
   s.authors       = ["Quinn Harris"]
   s.email         = ["sequel@quinnharris.me"]
 
   s.summary       = "Alternative to single and class table inheritance plugins for sequel"
   s.description   = s.summary
-  s.homepage      = "TODO: Put your gem's website or public repo URL here."
+  s.homepage      = "https://github.com/QuinnHarris/sequel-table_inheritance"
   s.license       = "MIT"
 
   s.files         = `git ls-files -z`.split("\x0").reject { |f| f.match(%r{^(test|spec|features)/}) }
