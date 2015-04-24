@@ -5,7 +5,7 @@ $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 
 Gem::Specification.new do |s|
   s.name          = "sequel-table_inheritance"
-  s.version       = '0.1.2'
+  s.version       = '0.1.3'
   s.authors       = ["Quinn Harris"]
   s.email         = ["sequel@quinnharris.me"]
 
@@ -13,6 +13,7 @@ Gem::Specification.new do |s|
   s.description   = s.summary
   s.homepage      = "https://github.com/QuinnHarris/sequel-table_inheritance"
   s.license       = "MIT"
+  s.required_ruby_version = ">= 1.8.7"
 
   s.files         = `git ls-files -z`.split("\x0").reject { |f| f.match(%r{^(test|spec|features)/}) }
   s.bindir        = "bin"

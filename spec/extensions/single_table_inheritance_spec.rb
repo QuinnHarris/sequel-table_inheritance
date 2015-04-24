@@ -80,6 +80,14 @@ describe Sequel::Model, "single table inheritance plugin" do
     DB.sqls.should == ["INSERT INTO sti_tests (kind) VALUES ('StiTest')", "SELECT * FROM sti_tests WHERE (id = 10) LIMIT 1", "INSERT INTO sti_tests (kind) VALUES ('StiTestSub1')", "SELECT * FROM sti_tests WHERE ((sti_tests.kind IN ('StiTestSub1')) AND (id = 10)) LIMIT 1", "INSERT INTO sti_tests (kind) VALUES ('StiTestSub2')", "SELECT * FROM sti_tests WHERE ((sti_tests.kind IN ('StiTestSub2')) AND (id = 10)) LIMIT 1"]
   end
 
+  # Delete in this plugin only uses the primary key and not the type to select
+  it "should destroy the model correctly" do
+    StiTest.load(:id=>1).destroy
+    StiTestSub1.load(:id=>1).destroy
+    StiTestSub2.load(:id=>1).destroy
+    DB.sqls.should == ["DELETE FROM sti_tests WHERE (id = 1)"] * 3
+  end
+
   it "should handle validations on the type column field" do
     o = StiTestSub1.new
     def o.validate
@@ -265,6 +273,22 @@ describe Sequel::Model, "single table inheritance plugin" do
       StiTest2.dataset.sql.should == "SELECT * FROM sti_test2s"
       ["SELECT * FROM sti_test2s WHERE (sti_test2s.kind IN (0, 1))",
        "SELECT * FROM sti_test2s WHERE (sti_test2s.kind IN (1, 0))"].should include(StiTest3.dataset.sql)
+    end
+
+    # Delete in this plugin only uses the primary key and not the type to select
+    it "should destroy the model correctly" do
+      StiTest2.plugin :hybrid_table_inheritance, :key=>:kind, :model_map=>{'sti3'=>'StiTest3', 'sti3b'=>'StiTest3', 'sti4'=>'StiTest4'}
+      class ::StiTest3 < ::StiTest2; end
+      class ::StiTest4 < ::StiTest2; end
+      StiTest2.load(:id=>1).destroy
+      StiTest3.load(:id=>1).destroy
+      sqls = DB.sqls
+      sqls.should == [
+          'SELECT * FROM sti_test3s LIMIT 1',  # Checking for child table
+          'SELECT * FROM sti_test4s LIMIT 1',
+          'DELETE FROM sti_test2s WHERE (id = 1)',
+          'DELETE FROM sti_test2s WHERE (id = 1)',
+      ]
     end
 
     it "should honor a :key_chooser" do

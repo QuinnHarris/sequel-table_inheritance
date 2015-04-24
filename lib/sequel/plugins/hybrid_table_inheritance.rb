@@ -186,8 +186,9 @@ module Sequel
       # :key_chooser :: proc returning key for the provided model instance
       # :table_map :: Hash with class name symbols keys mapping to table name symbol values
       #               Overrides implicit table names
-      # :subclass_load :: subclass loading strategy, defaults to :lazy
-      #                   options: :eager, :eager_only, :lazy or :lazy_only
+      # :subclass_load :: Subclass loading strategy,
+      #                   options are :eager, :eager_only, :lazy or :lazy_only.
+      #                   Defaults to :lazy.
       def self.configure(model, opts = OPTS)
         SingleTableInheritance.configure model, opts[:key], opts
 
@@ -196,7 +197,7 @@ module Sequel
           @cti_subclass_datasets = {}
           @cti_models = [self]
           @cti_tables = [table_name]
-          @cti_instance_dataset = db.from(table_name)
+          @cti_instance_dataset = @instance_dataset
           @cti_table_columns = columns
           @cti_table_map = opts[:table_map] || {}
         end
