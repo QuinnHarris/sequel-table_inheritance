@@ -256,6 +256,8 @@ module Sequel
         # the implicit naming is incorrect.
         attr_reader :cti_table_map
 
+        Plugins.inherited_instance_variables(self, :@cti_models=>nil, :@cti_tables=>nil, :@cti_table_columns=>nil, :@cti_instance_dataset=>nil, :@cti_subclass_load=>nil, :@cti_table_map=>nil, :@cti_subclass_datasets=>proc{|v| {} })
+
         def inherited(subclass)
           ds = sti_dataset
 
@@ -266,19 +268,11 @@ module Sequel
           super # Call single_table_inheritance
           @cti_tables.pop
 
-          cm = cti_models
-          ctm = cti_table_map
-          ct = cti_tables
-          ctc = cti_table_columns
-          cid = cti_instance_dataset
-          pk = primary_key
-          csl = cti_subclass_load
-
           # Set table if this is a class table inheritance
           table = nil
           columns = nil
           if (n = subclass.name) && !n.empty?
-            if table = ctm[n.to_sym]
+            if table = cti_table_map[n.to_sym]
               columns = db.from(table).columns
             else
               table = subclass.implicit_table_name
@@ -288,47 +282,40 @@ module Sequel
           end
           table = nil if table && (table == table_name)
 
+          return unless table
+
+          pk = primary_key
           subclass.instance_eval do
-            @cti_table_map = ctm
-            @cti_subclass_load = csl
-            @cti_subclass_datasets = {}
+            if cti_tables.length == 1
+              ds = ds.select(*self.columns.map{|cc| Sequel.qualify(table_name, Sequel.identifier(cc))})
+            end
+            sel_app = (columns - [pk]).map{|cc| Sequel.qualify(table, Sequel.identifier(cc))}
+            @sti_dataset = ds.join(table, pk=>pk).select_append(*sel_app)
+            set_dataset(@sti_dataset)
+            set_columns(self.columns)
+            dataset.row_proc = lambda{|r| subclass.sti_load(r)}
 
-            if table
-              if ct.length == 1
-                ds = ds.select(*self.columns.map{|cc| Sequel.qualify(table_name, Sequel.identifier(cc))})
-              end
-              sel_app = (columns - [pk]).map{|cc| Sequel.qualify(table, Sequel.identifier(cc))}
-              @sti_dataset = ds.join(table, pk=>pk).select_append(*sel_app)
-              set_dataset(@sti_dataset)
-              set_columns(self.columns)
-              dataset.row_proc = lambda{|r| subclass.sti_load(r)}
-
-              @cti_models = cm + [self]
-              @cti_tables = ct + [table]
-              @cti_table_columns = columns
-              @cti_instance_dataset = db.from(table_name)
-
-              unless csl == :lazy_only
-                cm.each do |model|
-                  sd = model.instance_variable_get(:@cti_subclass_datasets)
-                  unless d = sd[cm.last]
-                    sd[self] = db.from(table).select(*columns.map{|cc| Sequel.qualify(table_name, Sequel.identifier(cc))})
-                  else
-                    sd[self] = d.join(table, pk=>pk).select_append(*sel_app)
-                  end
+            unless cti_subclass_load == :lazy_only
+              cti_models.each do |model|
+                sd = model.instance_variable_get(:@cti_subclass_datasets)
+                unless d = sd[cti_table_model]
+                  sd[self] = db.from(table).select(*columns.map{|cc| Sequel.qualify(table, Sequel.identifier(cc))})
+                else
+                  sd[self] = d.join(table, pk=>pk).select_append(*sel_app)
                 end
               end
-              unless csl == :eager_only
-                (columns - [pk]).each{|a| define_lazy_attribute_getter(a, :dataset=>dataset, :table=>table)}
-              end
-              cti_tables.reverse.each do |ct|
-                db.schema(ct).each{|sk,v| db_schema[sk] = v}
-              end
-            else
-              @cti_models = cm
-              @cti_tables = ct
-              @cti_table_columns = ctc
-              @cti_instance_dataset = cid
+            end
+            unless cti_subclass_load == :eager_only
+              (columns - [pk]).each{|a| define_lazy_attribute_getter(a, :dataset=>dataset, :table=>table)}
+            end
+
+            @cti_models += [self]
+            @cti_tables += [table]
+            @cti_table_columns = columns
+            @cti_instance_dataset = db.from(table)
+
+            cti_tables.reverse.each do |ct|
+              db.schema(ct).each{|sk,v| db_schema[sk] = v}
             end
           end
         end
