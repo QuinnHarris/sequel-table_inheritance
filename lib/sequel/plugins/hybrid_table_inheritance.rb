@@ -229,15 +229,6 @@ module Sequel
         # Eager loading option
         attr_reader :cti_subclass_load
 
-        # Hash with table name symbol keys and arrays of column symbol values,
-        # giving the columns to update in each backing database table.
-        # Only needed to be compatible with class_table_inheritance plugin
-        def cti_columns
-          h = {}
-          cti_models.each { |m| h[m.table_name] = m.cti_table_columns }
-          h
-        end
-
         # An array of column symbols for the backing database table,
         # giving the columns to update in each backing database table.
         attr_reader :cti_table_columns
@@ -255,6 +246,20 @@ module Sequel
         # Specified with the :table_map option to the plugin, and used if
         # the implicit naming is incorrect.
         attr_reader :cti_table_map
+
+        # Hash with table name symbol keys and arrays of column symbol values,
+        # giving the columns to update in each backing database table.
+        # Only needed to be compatible with class_table_inheritance plugin
+        def cti_columns
+          h = {}
+          cti_models.each { |m| h[m.table_name] = m.cti_table_columns }
+          h
+        end
+
+        # Alias to single_table_inheritance methods to be compatible with
+        # class_table_inheritance plugin
+        def cti_key; sti_key; end
+        def cti_model_map; sti_model_map; end
 
         Plugins.inherited_instance_variables(self, :@cti_models=>nil, :@cti_tables=>nil, :@cti_table_columns=>nil, :@cti_instance_dataset=>nil, :@cti_subclass_load=>nil, :@cti_table_map=>nil, :@cti_subclass_datasets=>proc{|v| {} })
 
