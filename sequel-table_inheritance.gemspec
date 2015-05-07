@@ -1,11 +1,10 @@
 # coding: utf-8
 lib = File.expand_path('../lib', __FILE__)
 $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
-#require 'sequel/table_inheritance/version'
 
 Gem::Specification.new do |s|
   s.name          = "sequel-table_inheritance"
-  s.version       = '0.1.3'
+  s.version       = '0.2.0'
   s.authors       = ["Quinn Harris"]
   s.email         = ["sequel@quinnharris.me"]
 
@@ -23,5 +22,5 @@ Gem::Specification.new do |s|
   s.add_development_dependency "rake", "~> 10.0"
   s.add_development_dependency "rspec"
 
-  s.add_dependency "sequel", "~> 4.19"
+  s.add_dependency "sequel", "~> 4.22"
 end

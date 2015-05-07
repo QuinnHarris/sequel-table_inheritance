@@ -269,9 +269,7 @@ module Sequel
           # Prevent inherited in model/base.rb from setting the dataset
           subclass.instance_eval { @dataset = nil }
 
-          @cti_tables.push ds.first_source_alias # Kludge to change filter to use root table
-          super # Call single_table_inheritance
-          @cti_tables.pop
+          super
 
           # Set table if this is a class table inheritance
           table = nil
