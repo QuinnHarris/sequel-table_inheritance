@@ -1,3 +1,6 @@
+== NOT MAINTAINED
+The functionality of this plugin was integrated into Sequel 4.24.  Use that instead.
+
 == Sequel Hybrid Table Inheritance
 
 This is a sequel plugin that combines the functionality of the single and class
